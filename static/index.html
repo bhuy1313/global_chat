@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Rust Global Chat</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="app-layout">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="brand">
+        <div class="logo-icon">🦀</div>
+        <div class="brand-info">
+          <h1>Rust Global Chat</h1>
+          <div class="connection-status">
+            <span class="status-dot" id="statusDot"></span>
+            <span class="status-text" id="statusText">Đang kết nối...</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="header-actions">
+        <div class="online-badge">
+          <span class="online-icon">👥</span>
+          <span id="userCount">0</span> online
+        </div>
+        <button class="nickname-btn" id="openNicknameModalBtn" title="Đổi biệt danh">
+          <span class="user-avatar-small" id="myAvatar">?</span>
+          <span class="nickname-display" id="myNickname">Guest</span>
+          <span class="edit-icon">✏️</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- Chat Messages Window -->
+    <main class="chat-main" id="chatMain">
+      <div class="chat-container" id="chatContainer">
+        <div class="welcome-banner">
+          <div class="welcome-icon">💬</div>
+          <h3>Chào mừng bạn đến với Rust Global Chat!</h3>
+          <p>Phòng chat công cộng thời gian thực được hỗ trợ bởi Axum & Tokio. Hãy tôn trọng mọi người khi trò chuyện nhé.</p>
+        </div>
+        <!-- Messages will be injected here -->
+      </div>
+      <button class="scroll-bottom-btn hidden" id="scrollBottomBtn">
+        ↓ Tin nhắn mới
+      </button>
+    </main>
+
+    <!-- Message Input Bar -->
+    <footer class="chat-footer">
+      <!-- Emoji Picker Popover -->
+      <div class="emoji-picker hidden" id="emojiPicker">
+        <span class="emoji-item">😄</span>
+        <span class="emoji-item">😂</span>
+        <span class="emoji-item">🔥</span>
+        <span class="emoji-item">🚀</span>
+        <span class="emoji-item">❤️</span>
+        <span class="emoji-item">👍</span>
+        <span class="emoji-item">🎉</span>
+        <span class="emoji-item">👀</span>
+        <span class="emoji-item">💡</span>
+        <span class="emoji-item">🦀</span>
+        <span class="emoji-item">✨</span>
+        <span class="emoji-item">💯</span>
+      </div>
+
+      <form class="chat-form" id="chatForm">
+        <button type="button" class="action-btn emoji-btn" id="emojiToggleBtn" title="Chọn emoji">
+          😊
+        </button>
+        <input 
+          type="text" 
+          id="messageInput" 
+          placeholder="Nhập tin nhắn... (Nhấn Enter để gửi)" 
+          autocomplete="off" 
+          maxlength="500" 
+          required
+        />
+        <button type="submit" class="send-btn" id="sendBtn" title="Gửi tin nhắn">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+            <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+          </svg>
+        </button>
+      </form>
+    </footer>
+  </div>
+
+  <!-- Nickname Change Modal -->
+  <div class="modal-overlay hidden" id="nicknameModal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>Đổi biệt danh</h3>
+        <button class="close-btn" id="closeNicknameModalBtn">&times;</button>
+      </div>
+      <div class="modal-body">
+        <label for="nicknameInput">Biệt danh mới của bạn (2 - 24 ký tự):</label>
+        <input type="text" id="nicknameInput" maxlength="24" placeholder="Nhập tên của bạn...">
+        <p class="modal-hint">Biệt danh sẽ được lưu cho các lần chat tiếp theo.</p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" id="cancelNicknameBtn">Hủy</button>
+        <button class="btn btn-primary" id="saveNicknameBtn">Lưu thay đổi</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
