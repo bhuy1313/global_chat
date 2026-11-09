@@ -213,9 +213,11 @@
   }
 
   function appendSystemMessage(content, timestamp, autoScroll = true) {
+    const isWarning = content.includes('⚠️');
     const sysEl = document.createElement('div');
-    sysEl.className = 'system-event';
-    sysEl.innerHTML = `<span>📢 ${escapeHtml(content)}</span> <span class="timestamp">${escapeHtml(timestamp || '')}</span>`;
+    sysEl.className = `system-event ${isWarning ? 'warning' : ''}`;
+    const icon = isWarning ? '🚨' : '📢';
+    sysEl.innerHTML = `<span>${icon} ${escapeHtml(content)}</span> <span class="timestamp">${escapeHtml(timestamp || '')}</span>`;
 
     const wasNearBottom = isScrollNearBottom();
     chatContainer.appendChild(sysEl);
@@ -249,6 +251,13 @@
     e.preventDefault();
     const content = messageInput.value.trim();
     if (!content) return;
+
+    // Chống double click liên tục ở client
+    const sendBtn = document.getElementById('sendBtn');
+    if (sendBtn) {
+      sendBtn.disabled = true;
+      setTimeout(() => { sendBtn.disabled = false; }, 300);
+    }
 
     const sent = sendWsMessage({
       type: 'chat',

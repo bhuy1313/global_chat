@@ -1,5 +1,5 @@
 use std::{
-    collections::VecDeque,
+    collections::{HashSet, VecDeque},
     sync::{
         atomic::{AtomicUsize, Ordering},
         Arc,
@@ -11,12 +11,28 @@ use tracing::warn;
 
 use crate::models::ServerMessage;
 
+const RESERVED_NAMES: &[&str] = &[
+    "admin",
+    "administrator",
+    "system",
+    "server",
+    "mod",
+    "moderator",
+    "root",
+    "bot",
+    "support",
+    "everyone",
+    "here",
+    "all",
+];
+
 pub struct AppState {
     pub tx: broadcast::Sender<ServerMessage>,
     pub history: Arc<RwLock<VecDeque<ServerMessage>>>,
     pub user_count: Arc<AtomicUsize>,
     pub capacity: usize,
     pub db_pool: Option<PgPool>,
+    pub active_nicknames: Arc<RwLock<HashSet<String>>>,
 }
 
 impl AppState {
@@ -28,6 +44,7 @@ impl AppState {
             user_count: Arc::new(AtomicUsize::new(0)),
             capacity,
             db_pool,
+            active_nicknames: Arc::new(RwLock::new(HashSet::new())),
         }
     }
 
@@ -43,7 +60,6 @@ impl AppState {
     }
 
     pub async fn add_to_history(&self, message: ServerMessage) {
-        // Asynchronously persist chat messages to PostgreSQL if DB pool is present
         if let ServerMessage::Chat {
             ref id,
             ref nickname,
@@ -68,7 +84,6 @@ impl AppState {
             }
         }
 
-        // Always store in-memory for instant WebSocket synchronization
         let mut hist = self.history.write().await;
         if hist.len() >= self.capacity {
             hist.pop_front();
@@ -109,5 +124,55 @@ impl AppState {
 
     pub fn get_user_count(&self) -> usize {
         self.user_count.load(Ordering::SeqCst)
+    }
+
+    /// Kiểm tra và đăng ký biệt danh với cơ chế bảo vệ chống mạo danh và trùng tên
+    pub async fn try_claim_nickname(
+        &self,
+        old_name: Option<&str>,
+        proposed: &str,
+    ) -> Result<String, &'static str> {
+        let clean: String = proposed.trim().chars().take(24).collect();
+        if clean.len() < 2 {
+            return Err("Biệt danh quá ngắn (tối thiểu 2 ký tự).");
+        }
+        if clean.chars().any(|c| c.is_control()) {
+            return Err("Biệt danh chứa ký tự điều khiển không hợp lệ.");
+        }
+
+        // Chống mạo danh quản trị viên & hệ thống
+        let lower = clean.to_lowercase();
+        for &reserved in RESERVED_NAMES {
+            if lower == reserved
+                || lower.starts_with(&format!("{reserved}_"))
+                || lower.starts_with(&format!("{reserved}-"))
+                || lower.starts_with(&format!("{reserved} "))
+            {
+                return Err("Biệt danh này đã được bảo lưu bởi hệ thống, vui lòng chọn tên khác.");
+            }
+        }
+
+        let mut set = self.active_nicknames.write().await;
+        if let Some(old) = old_name {
+            if old == clean {
+                return Ok(clean);
+            }
+        }
+
+        // Chống trùng tên đang online
+        if set.contains(&clean) {
+            return Err("Biệt danh này hiện đang có người sử dụng trong phòng.");
+        }
+
+        if let Some(old) = old_name {
+            set.remove(old);
+        }
+        set.insert(clean.clone());
+        Ok(clean)
+    }
+
+    pub async fn release_nickname(&self, name: &str) {
+        let mut set = self.active_nicknames.write().await;
+        set.remove(name);
     }
 }
