@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 pub enum ClientMessage {
     Chat { content: String },
     SetNickname { nickname: String },
+    JoinRoom { room: String },
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -15,13 +16,16 @@ pub enum ServerMessage {
         nickname: String,
         content: String,
         timestamp: String,
+        room: String,
     },
     System {
         content: String,
         timestamp: String,
+        room: Option<String>,
     },
     History {
         messages: Vec<ServerMessage>,
+        room: String,
     },
     UserCount {
         count: usize,
@@ -29,4 +33,19 @@ pub enum ServerMessage {
     NicknameAssigned {
         nickname: String,
     },
+    RoomJoined {
+        room: String,
+    },
+}
+
+impl ServerMessage {
+    pub fn room(&self) -> Option<&str> {
+        match self {
+            ServerMessage::Chat { room, .. } => Some(room.as_str()),
+            ServerMessage::System { room, .. } => room.as_deref(),
+            ServerMessage::History { room, .. } => Some(room.as_str()),
+            ServerMessage::RoomJoined { room } => Some(room.as_str()),
+            ServerMessage::UserCount { .. } | ServerMessage::NicknameAssigned { .. } => None,
+        }
+    }
 }

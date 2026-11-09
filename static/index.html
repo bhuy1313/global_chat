@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Rust Global Chat</title>
+  <title>Rust Global Chat - Multi Room & Media</title>
   <link rel="stylesheet" href="style.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -11,84 +11,169 @@
 </head>
 <body>
   <div class="app-layout">
-    <!-- Header -->
-    <header class="app-header">
-      <div class="brand">
-        <div class="logo-icon">🦀</div>
-        <div class="brand-info">
-          <h1>Rust Global Chat</h1>
-          <div class="connection-status">
-            <span class="status-dot" id="statusDot"></span>
-            <span class="status-text" id="statusText">Đang kết nối...</span>
+    
+    <!-- Sidebar: Channels & User Profile (Discord-like) -->
+    <aside class="app-sidebar" id="appSidebar">
+      <div class="sidebar-header">
+        <div class="brand">
+          <span class="logo-icon">🦀</span>
+          <div class="brand-text">
+            <h2>Rust Chat</h2>
+            <div class="connection-status">
+              <span class="status-dot" id="statusDot"></span>
+              <span class="status-text" id="statusText">Đang kết nối...</span>
+            </div>
           </div>
         </div>
+        <button class="sidebar-close-btn" id="sidebarCloseBtn" title="Đóng danh sách">&times;</button>
       </div>
 
-      <div class="header-actions">
-        <div class="online-badge">
-          <span class="online-icon">👥</span>
-          <span id="userCount">0</span> online
+      <div class="channels-section">
+        <div class="section-title">KÊNH TRÒ CHUYỆN</div>
+        <nav class="channels-list" id="channelsList">
+          <button class="channel-item active" data-room="general">
+            <span class="channel-hash">#</span>
+            <span class="channel-name">general</span>
+            <span class="channel-desc">Sảnh chung</span>
+          </button>
+          <button class="channel-item" data-room="rust-lang">
+            <span class="channel-hash">#</span>
+            <span class="channel-name">rust-lang</span>
+            <span class="channel-desc">Hội Rustaceans</span>
+          </button>
+          <button class="channel-item" data-room="gaming">
+            <span class="channel-hash">#</span>
+            <span class="channel-name">gaming</span>
+            <span class="channel-desc">Góc Game thủ</span>
+          </button>
+          <button class="channel-item" data-room="chill">
+            <span class="channel-hash">#</span>
+            <span class="channel-name">chill</span>
+            <span class="channel-desc">Chém gió & Nhạc</span>
+          </button>
+        </nav>
+      </div>
+
+      <!-- User Profile Card in Sidebar -->
+      <div class="sidebar-footer">
+        <div class="user-card" id="openNicknameModalBtn" title="Nhấp để đổi biệt danh">
+          <div class="user-avatar-small" id="myAvatar">?</div>
+          <div class="user-info">
+            <span class="user-name" id="myNickname">Guest</span>
+            <span class="user-status-text">Đang trực tuyến</span>
+          </div>
+          <span class="edit-icon">⚙️</span>
         </div>
-        <button class="nickname-btn" id="openNicknameModalBtn" title="Đổi biệt danh">
-          <span class="user-avatar-small" id="myAvatar">?</span>
-          <span class="nickname-display" id="myNickname">Guest</span>
-          <span class="edit-icon">✏️</span>
-        </button>
       </div>
-    </header>
+    </aside>
 
-    <!-- Chat Messages Window -->
-    <main class="chat-main" id="chatMain">
-      <div class="chat-container" id="chatContainer">
-        <div class="welcome-banner">
-          <div class="welcome-icon">💬</div>
-          <h3>Chào mừng bạn đến với Rust Global Chat!</h3>
-          <p>Phòng chat công cộng thời gian thực được hỗ trợ bởi Axum & Tokio. Hãy tôn trọng mọi người khi trò chuyện nhé.</p>
+    <!-- Main Chat View -->
+    <div class="chat-viewport">
+      <!-- Main Channel Header -->
+      <header class="app-header">
+        <div class="header-left">
+          <button class="sidebar-toggle-btn" id="sidebarToggleBtn" title="Mở danh sách kênh">
+            ☰
+          </button>
+          <div class="current-channel-info">
+            <span class="channel-hash-large">#</span>
+            <h1 id="currentChannelTitle">general</h1>
+            <span class="channel-separator">|</span>
+            <span class="channel-topic" id="currentChannelTopic">Phòng trò chuyện sảnh chính</span>
+          </div>
         </div>
-        <!-- Messages will be injected here -->
-      </div>
-      <button class="scroll-bottom-btn hidden" id="scrollBottomBtn">
-        ↓ Tin nhắn mới
-      </button>
-    </main>
 
-    <!-- Message Input Bar -->
-    <footer class="chat-footer">
-      <!-- Emoji Picker Popover -->
-      <div class="emoji-picker hidden" id="emojiPicker">
-        <span class="emoji-item">😄</span>
-        <span class="emoji-item">😂</span>
-        <span class="emoji-item">🔥</span>
-        <span class="emoji-item">🚀</span>
-        <span class="emoji-item">❤️</span>
-        <span class="emoji-item">👍</span>
-        <span class="emoji-item">🎉</span>
-        <span class="emoji-item">👀</span>
-        <span class="emoji-item">💡</span>
-        <span class="emoji-item">🦀</span>
-        <span class="emoji-item">✨</span>
-        <span class="emoji-item">💯</span>
-      </div>
+        <div class="header-right">
+          <div class="online-badge">
+            <span class="online-icon">👥</span>
+            <span id="userCount">0</span> online
+          </div>
+        </div>
+      </header>
 
-      <form class="chat-form" id="chatForm">
-        <button type="button" class="action-btn emoji-btn" id="emojiToggleBtn" title="Chọn emoji">
-          😊
+      <!-- Chat Messages Window -->
+      <main class="chat-main" id="chatMain">
+        <div class="chat-container" id="chatContainer">
+          <div class="welcome-banner" id="welcomeBanner">
+            <div class="welcome-icon">💬</div>
+            <h3 id="welcomeTitle">Chào mừng bạn đến với #general!</h3>
+            <p id="welcomeDesc">Đây là điểm bắt đầu của phòng trò chuyện này. Hãy tôn trọng mọi người khi nhắn tin nhé.</p>
+          </div>
+        </div>
+        <button class="scroll-bottom-btn hidden" id="scrollBottomBtn">
+          ↓ Tin nhắn mới
         </button>
-        <input 
-          type="text" 
-          id="messageInput" 
-          placeholder="Nhập tin nhắn... (Nhấn Enter để gửi)" 
-          autocomplete="off" 
-          maxlength="500" 
-          required
-        />
-        <button type="submit" class="send-btn" id="sendBtn" title="Gửi tin nhắn">
-          <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
-            <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
-          </svg>
-        </button>
-      </form>
-    </footer>
+      </main>
+
+      <!-- Message Input Bar -->
+      <footer class="chat-footer">
+        <!-- Emoji Picker Popover -->
+        <div class="emoji-picker hidden" id="emojiPicker">
+          <span class="emoji-item">😄</span>
+          <span class="emoji-item">😂</span>
+          <span class="emoji-item">🔥</span>
+          <span class="emoji-item">🚀</span>
+          <span class="emoji-item">❤️</span>
+          <span class="emoji-item">👍</span>
+          <span class="emoji-item">🎉</span>
+          <span class="emoji-item">👀</span>
+          <span class="emoji-item">💡</span>
+          <span class="emoji-item">🦀</span>
+          <span class="emoji-item">✨</span>
+          <span class="emoji-item">💯</span>
+          <span class="emoji-item">😎</span>
+          <span class="emoji-item">🥳</span>
+          <span class="emoji-item">👏</span>
+          <span class="emoji-item">💀</span>
+          <span class="emoji-item">🤩</span>
+          <span class="emoji-item">🍕</span>
+        </div>
+
+        <!-- GIF Picker Popover (Tenor) -->
+        <div class="gif-picker hidden" id="gifPicker">
+          <div class="gif-picker-header">
+            <span>🎬 Chọn Tenor GIF</span>
+            <button class="gif-picker-close" id="gifPickerClose">&times;</button>
+          </div>
+          <div class="gif-search-box">
+            <input type="text" id="gifSearchInput" placeholder="Tìm kiếm GIF (gõ enter)..." autocomplete="off" />
+          </div>
+          <div class="gif-quick-tags" id="gifQuickTags">
+            <span class="gif-tag" data-tag="trending">🔥 Hot</span>
+            <span class="gif-tag" data-tag="rust crab">🦀 Rust</span>
+            <span class="gif-tag" data-tag="laugh">😂 Cười</span>
+            <span class="gif-tag" data-tag="cat">🐱 Mèo</span>
+            <span class="gif-tag" data-tag="dance">💃 Nhảy</span>
+            <span class="gif-tag" data-tag="wow">😲 Wow</span>
+          </div>
+          <div class="gif-results" id="gifResults">
+            <!-- Animated GIF cards will load here -->
+          </div>
+        </div>
+
+        <form class="chat-form" id="chatForm">
+          <button type="button" class="action-btn emoji-btn" id="emojiToggleBtn" title="Chọn emoji">
+            😊
+          </button>
+          <button type="button" class="action-btn gif-btn" id="gifToggleBtn" title="Chọn Tenor GIF">
+            GIF
+          </button>
+          <input 
+            type="text" 
+            id="messageInput" 
+            placeholder="Nhắn tin trong #general... (hỗ trợ dán link ảnh/GIF trực tiếp)" 
+            autocomplete="off" 
+            maxlength="500" 
+            required
+          />
+          <button type="submit" class="send-btn" id="sendBtn" title="Gửi tin nhắn">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+              <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+            </svg>
+          </button>
+        </form>
+      </footer>
+    </div>
   </div>
 
   <!-- Nickname Change Modal -->
@@ -101,13 +186,19 @@
       <div class="modal-body">
         <label for="nicknameInput">Biệt danh mới của bạn (2 - 24 ký tự):</label>
         <input type="text" id="nicknameInput" maxlength="24" placeholder="Nhập tên của bạn...">
-        <p class="modal-hint">Biệt danh sẽ được lưu cho các lần chat tiếp theo.</p>
+        <p class="modal-hint">Biệt danh không được trùng với tên nhạy cảm của hệ thống hoặc người đang online.</p>
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" id="cancelNicknameBtn">Hủy</button>
         <button class="btn btn-primary" id="saveNicknameBtn">Lưu thay đổi</button>
       </div>
     </div>
+  </div>
+
+  <!-- Lightbox Modal (Phóng to xem ảnh) -->
+  <div class="lightbox-overlay hidden" id="lightboxModal">
+    <button class="lightbox-close" id="lightboxCloseBtn">&times;</button>
+    <img src="" alt="Full preview" id="lightboxImage" class="lightbox-img">
   </div>
 
   <script src="app.js"></script>

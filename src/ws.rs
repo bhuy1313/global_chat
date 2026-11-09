@@ -18,11 +18,11 @@ use crate::{
     state::AppState,
 };
 
-// Cấu hình Rate Limiting
+// Cấu hình Rate Limiting & Heartbeat
 const RATE_LIMIT_MAX_MESSAGES: usize = 5;
 const RATE_LIMIT_WINDOW_SECS: u64 = 3;
 const COOLDOWN_DURATION_SECS: u64 = 5;
-const MAX_PAYLOAD_BYTES: usize = 1024;
+const MAX_PAYLOAD_BYTES: usize = 2048; // Tăng lên 2KB để hỗ trợ link ảnh/GIF dài
 const HEARTBEAT_INTERVAL_SECS: u64 = 25;
 const HEARTBEAT_TIMEOUT_SECS: u64 = 65;
 
@@ -34,7 +34,7 @@ pub async fn ws_handler(
 }
 
 async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
-    // 1. Tạo và đăng ký biệt danh Guest an toàn không trùng lặp
+    // 1. Tạo và đăng ký biệt danh Guest an toàn
     let guest_id = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
@@ -50,7 +50,9 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
         }
     };
 
-    info!("New client connected: {nickname}");
+    let mut current_room = "general".to_string();
+
+    info!("New client connected: {nickname} in #{current_room}");
 
     let mut rx = state.tx.subscribe();
     let current_users = state.increment_user();
@@ -65,6 +67,13 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
         let _ = sender.send(Message::Text(json.into())).await;
     }
 
+    let init_room = ServerMessage::RoomJoined {
+        room: current_room.clone(),
+    };
+    if let Ok(json) = serde_json::to_string(&init_room) {
+        let _ = sender.send(Message::Text(json.into())).await;
+    }
+
     let init_count = ServerMessage::UserCount {
         count: current_users,
     };
@@ -72,19 +81,21 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
         let _ = sender.send(Message::Text(json.into())).await;
     }
 
-    let history_msgs = state.get_history().await;
+    let history_msgs = state.get_room_history(&current_room).await;
     let init_history = ServerMessage::History {
         messages: history_msgs,
+        room: current_room.clone(),
     };
     if let Ok(json) = serde_json::to_string(&init_history) {
         let _ = sender.send(Message::Text(json.into())).await;
     }
 
-    // 3. Thông báo cho toàn bộ phòng chat
+    // 3. Thông báo cho phòng hiện tại
     let now_str = Local::now().format("%H:%M").to_string();
     let join_event = ServerMessage::System {
-        content: format!("{nickname} đã tham gia phòng chat"),
+        content: format!("{nickname} đã tham gia phòng #{current_room}"),
         timestamp: now_str,
+        room: Some(current_room.clone()),
     };
     state.add_to_history(join_event.clone()).await;
     state.broadcast(join_event);
@@ -92,7 +103,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
         count: current_users,
     });
 
-    // 4. Biến theo dõi Rate Limiting & Heartbeat per-socket
+    // 4. Rate Limiting & Heartbeat tracking
     let mut msg_timestamps = std::collections::VecDeque::new();
     let mut cooldown_until: Option<Instant> = None;
     let mut last_activity = Instant::now();
@@ -101,25 +112,32 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
     // 5. Vòng lặp sự kiện bất đồng bộ
     loop {
         tokio::select! {
-            // Kiểm tra Heartbeat & Dọn dẹp Zombie Connection
+            // Heartbeat check & Zombie socket cleanup
             _ = heartbeat_timer.tick() => {
                 if last_activity.elapsed() > Duration::from_secs(HEARTBEAT_TIMEOUT_SECS) {
-                    warn!("Client {nickname} timeout heartbeat (kết nối ma/mất mạng), đóng socket.");
+                    warn!("Client {nickname} timeout heartbeat, đóng socket.");
                     break;
                 }
-                // Gửi Ping frame định kỳ để duy trì kết nối
                 if sender.send(Message::Ping(vec![].into())).await.is_err() {
                     break;
                 }
             }
 
-            // Nhận tin nhắn phát sóng từ server để gửi ra client
+            // Nhận tin broadcast từ server
             broadcast_msg = rx.recv() => {
                 match broadcast_msg {
                     Ok(msg) => {
-                        if let Ok(json) = serde_json::to_string(&msg) {
-                            if sender.send(Message::Text(json.into())).await.is_err() {
-                                break;
+                        // Lọc theo phòng: Chỉ gửi nếu tin nhắn thuộc cùng phòng hoặc là tin toàn cục
+                        let should_send = match msg.room() {
+                            Some(r) => r == current_room,
+                            None => true,
+                        };
+
+                        if should_send {
+                            if let Ok(json) = serde_json::to_string(&msg) {
+                                if sender.send(Message::Text(json.into())).await.is_err() {
+                                    break;
+                                }
                             }
                         }
                     }
@@ -132,17 +150,17 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
                 }
             }
 
-            // Nhận tin nhắn từ client gửi lên
+            // Nhận tin từ WebSocket client gửi lên
             incoming = receiver.next() => {
                 match incoming {
                     Some(Ok(Message::Text(text))) => {
                         last_activity = Instant::now();
 
-                        // Kiểm tra kích thước gói tin (Chống tấn công bộ nhớ)
                         if text.len() > MAX_PAYLOAD_BYTES {
                             let warn_msg = ServerMessage::System {
                                 content: "⚠️ Tin nhắn quá dài vượt quá giới hạn cho phép.".to_string(),
                                 timestamp: Local::now().format("%H:%M").to_string(),
+                                room: Some(current_room.clone()),
                             };
                             if let Ok(json) = serde_json::to_string(&warn_msg) {
                                 let _ = sender.send(Message::Text(json.into())).await;
@@ -152,16 +170,73 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
 
                         if let Ok(client_msg) = serde_json::from_str::<ClientMessage>(&text) {
                             match client_msg {
+                                ClientMessage::JoinRoom { room } => {
+                                    let clean_room: String = room
+                                        .trim()
+                                        .to_lowercase()
+                                        .chars()
+                                        .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
+                                        .take(24)
+                                        .collect();
+
+                                    let target_room = if clean_room.is_empty() {
+                                        "general".to_string()
+                                    } else {
+                                        clean_room
+                                    };
+
+                                    if target_room != current_room {
+                                        let old_room = current_room.clone();
+                                        current_room = target_room.clone();
+
+                                        let time_str = Local::now().format("%H:%M").to_string();
+
+                                        // Thông báo phòng cũ
+                                        let leave_sys = ServerMessage::System {
+                                            content: format!("{nickname} đã chuyển sang #{current_room}"),
+                                            timestamp: time_str.clone(),
+                                            room: Some(old_room),
+                                        };
+                                        state.broadcast(leave_sys);
+
+                                        // Gửi xác nhận phòng mới và nạp lịch sử phòng mới cho client
+                                        let ack_room = ServerMessage::RoomJoined {
+                                            room: current_room.clone(),
+                                        };
+                                        if let Ok(json) = serde_json::to_string(&ack_room) {
+                                            let _ = sender.send(Message::Text(json.into())).await;
+                                        }
+
+                                        let room_history = state.get_room_history(&current_room).await;
+                                        let history_msg = ServerMessage::History {
+                                            messages: room_history,
+                                            room: current_room.clone(),
+                                        };
+                                        if let Ok(json) = serde_json::to_string(&history_msg) {
+                                            let _ = sender.send(Message::Text(json.into())).await;
+                                        }
+
+                                        // Thông báo phòng mới
+                                        let enter_sys = ServerMessage::System {
+                                            content: format!("{nickname} đã vào phòng #{current_room}"),
+                                            timestamp: time_str,
+                                            room: Some(current_room.clone()),
+                                        };
+                                        state.add_to_history(enter_sys.clone()).await;
+                                        state.broadcast(enter_sys);
+                                    }
+                                }
+
                                 ClientMessage::Chat { content } => {
                                     let now = Instant::now();
 
-                                    // Kiểm tra thời gian phạt Cool-down nếu đang bị khóa
                                     if let Some(cooldown) = cooldown_until {
                                         if now < cooldown {
                                             let remaining = (cooldown - now).as_secs() + 1;
                                             let warn_msg = ServerMessage::System {
                                                 content: format!("⚠️ Bạn đang gửi tin quá nhanh! Vui lòng chờ {remaining} giây."),
                                                 timestamp: Local::now().format("%H:%M").to_string(),
+                                                room: Some(current_room.clone()),
                                             };
                                             if let Ok(json) = serde_json::to_string(&warn_msg) {
                                                 let _ = sender.send(Message::Text(json.into())).await;
@@ -172,7 +247,6 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
                                         }
                                     }
 
-                                    // Sliding window: tối đa 5 tin nhắn trong 3 giây
                                     while let Some(&t) = msg_timestamps.front() {
                                         if now.duration_since(t) > Duration::from_secs(RATE_LIMIT_WINDOW_SECS) {
                                             msg_timestamps.pop_front();
@@ -186,6 +260,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
                                         let warn_msg = ServerMessage::System {
                                             content: format!("⚠️ Phát hiện gửi tin liên tục! Bạn bị tạm khóa gửi trong {COOLDOWN_DURATION_SECS} giây."),
                                             timestamp: Local::now().format("%H:%M").to_string(),
+                                            room: Some(current_room.clone()),
                                         };
                                         if let Ok(json) = serde_json::to_string(&warn_msg) {
                                             let _ = sender.send(Message::Text(json.into())).await;
@@ -195,7 +270,6 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
 
                                     msg_timestamps.push_back(now);
 
-                                    // Validate và sanitize nội dung
                                     let trimmed = content.trim();
                                     if !trimmed.is_empty() {
                                         let sanitized: String = trimmed.chars().take(500).collect();
@@ -211,14 +285,15 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
                                             nickname: nickname.clone(),
                                             content: sanitized,
                                             timestamp: time_str,
+                                            room: current_room.clone(),
                                         };
 
                                         state.add_to_history(chat_msg.clone()).await;
                                         state.broadcast(chat_msg);
                                     }
                                 }
+
                                 ClientMessage::SetNickname { nickname: new_nick } => {
-                                    // Kiểm tra qua bộ lọc bảo vệ của state
                                     match state.try_claim_nickname(Some(&nickname), &new_nick).await {
                                         Ok(claimed_name) => {
                                             let old_nick = nickname.clone();
@@ -228,9 +303,9 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
                                             let sys_msg = ServerMessage::System {
                                                 content: format!("{old_nick} đã đổi tên thành {nickname}"),
                                                 timestamp: time_str,
+                                                room: Some(current_room.clone()),
                                             };
 
-                                            // Xác nhận cập nhật tên riêng cho client này
                                             let ack_msg = ServerMessage::NicknameAssigned {
                                                 nickname: nickname.clone(),
                                             };
@@ -242,10 +317,10 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
                                             state.broadcast(sys_msg);
                                         }
                                         Err(err_msg) => {
-                                            // Báo lỗi vi phạm biệt danh chỉ riêng cho người này
                                             let warn_msg = ServerMessage::System {
                                                 content: format!("⚠️ {err_msg}"),
                                                 timestamp: Local::now().format("%H:%M").to_string(),
+                                                room: Some(current_room.clone()),
                                             };
                                             if let Ok(json) = serde_json::to_string(&warn_msg) {
                                                 let _ = sender.send(Message::Text(json.into())).await;
@@ -284,8 +359,9 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
     let remaining_users = state.decrement_user();
     let leave_time = Local::now().format("%H:%M").to_string();
     let leave_event = ServerMessage::System {
-        content: format!("{nickname} đã rời phòng chat"),
+        content: format!("{nickname} đã rời phòng #{current_room}"),
         timestamp: leave_time,
+        room: Some(current_room.clone()),
     };
     state.add_to_history(leave_event.clone()).await;
     state.broadcast(leave_event);

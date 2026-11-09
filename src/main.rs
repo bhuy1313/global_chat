@@ -19,7 +19,7 @@ async fn health_check(State(state): State<Arc<AppState>>) -> Json<serde_json::Va
 
     Json(serde_json::json!({
         "status": "ok",
-        "service": "Rust Global Chat",
+        "service": "Rust Global Chat (Multi-Room)",
         "online_users": state.get_user_count(),
         "database": db_status
     }))
@@ -41,22 +41,12 @@ async fn main() {
 
     // Check for PostgreSQL DATABASE_URL
     let mut db_pool = None;
-    let mut initial_messages = Vec::new();
 
     if let Ok(database_url) = std::env::var("DATABASE_URL") {
         if !database_url.trim().is_empty() {
             info!("Đang kết nối tới PostgreSQL...");
             match db::init_pool(&database_url).await {
                 Ok(pool) => {
-                    match db::load_recent_messages(&pool, 100).await {
-                        Ok(history) => {
-                            info!("Đã nạp {} tin nhắn lịch sử từ PostgreSQL.", history.len());
-                            initial_messages = history;
-                        }
-                        Err(e) => {
-                            warn!("Không thể đọc lịch sử tin nhắn: {e}");
-                        }
-                    }
                     db_pool = Some(pool);
                 }
                 Err(err) => {
@@ -68,11 +58,12 @@ async fn main() {
         info!("Không có biến môi trường DATABASE_URL. Máy chủ hoạt động ở chế độ In-Memory.");
     }
 
-    // Initialize application state (capacity = 100 messages)
+    // Initialize application state (capacity = 100 messages per room)
     let state = Arc::new(AppState::new(100, db_pool));
-    if !initial_messages.is_empty() {
-        state.preload_history(initial_messages).await;
-    }
+
+    // Preload default "general" room history to warm cache
+    let initial_general = state.get_room_history("general").await;
+    info!("Đã khởi tạo phòng #general với {} tin nhắn lịch sử.", initial_general.len());
 
     // Build Axum router
     let app = Router::new()
@@ -91,7 +82,7 @@ async fn main() {
         .unwrap_or_else(|e| panic!("Không thể lắng nghe cổng {bind_addr}: {e}"));
 
     info!("========================================================");
-    info!("🦀 Rust Global Chat Server đang chạy!");
+    info!("🦀 Rust Global Chat Server (Multi-Room & Media) đang chạy!");
     info!("👉 Truy cập trình duyệt: http://127.0.0.1:{port}");
     info!("👉 WebSocket endpoint:  ws://127.0.0.1:{port}/ws");
     info!("👉 Health check API:     http://127.0.0.1:{port}/health");

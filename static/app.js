@@ -1,4 +1,4 @@
-// Global Chat Client App
+// Rust Global Chat - Multi-Room & Media Client
 (() => {
   // Elements
   const statusDot = document.getElementById('statusDot');
@@ -7,12 +7,27 @@
   const myNicknameEl = document.getElementById('myNickname');
   const myAvatarEl = document.getElementById('myAvatar');
   const chatContainer = document.getElementById('chatContainer');
-  const chatMain = document.getElementById('chatMain');
   const chatForm = document.getElementById('chatForm');
   const messageInput = document.getElementById('messageInput');
   const scrollBottomBtn = document.getElementById('scrollBottomBtn');
   const emojiToggleBtn = document.getElementById('emojiToggleBtn');
   const emojiPicker = document.getElementById('emojiPicker');
+  const gifToggleBtn = document.getElementById('gifToggleBtn');
+  const gifPicker = document.getElementById('gifPicker');
+  const gifPickerClose = document.getElementById('gifPickerClose');
+  const gifSearchInput = document.getElementById('gifSearchInput');
+  const gifQuickTags = document.getElementById('gifQuickTags');
+  const gifResults = document.getElementById('gifResults');
+
+  // Channel elements
+  const channelsList = document.getElementById('channelsList');
+  const currentChannelTitle = document.getElementById('currentChannelTitle');
+  const currentChannelTopic = document.getElementById('currentChannelTopic');
+  const welcomeTitle = document.getElementById('welcomeTitle');
+  const welcomeDesc = document.getElementById('welcomeDesc');
+  const appSidebar = document.getElementById('appSidebar');
+  const sidebarToggleBtn = document.getElementById('sidebarToggleBtn');
+  const sidebarCloseBtn = document.getElementById('sidebarCloseBtn');
 
   // Modal elements
   const openNicknameModalBtn = document.getElementById('openNicknameModalBtn');
@@ -22,12 +37,67 @@
   const saveNicknameBtn = document.getElementById('saveNicknameBtn');
   const nicknameInput = document.getElementById('nicknameInput');
 
+  // Lightbox elements
+  const lightboxModal = document.getElementById('lightboxModal');
+  const lightboxImage = document.getElementById('lightboxImage');
+  const lightboxCloseBtn = document.getElementById('lightboxCloseBtn');
+
   // State
   let ws = null;
+  let currentRoom = (window.location.hash || '').replace('#', '').trim() || 'general';
   let currentNickname = localStorage.getItem('rust_chat_nickname') || '';
   let reconnectTimeout = null;
   let reconnectAttempts = 0;
   const maxReconnectDelay = 10000;
+
+  const roomTopics = {
+    'general': 'Phòng trò chuyện sảnh chính',
+    'rust-lang': 'Góc giao lưu kỹ thuật & dự án bằng Rust',
+    'gaming': 'Kênh chém gió game thủ, rủ chơi game',
+    'chill': 'Góc thư giãn, nghe nhạc và tán gẫu'
+  };
+
+  // Curated High-Quality GIFs Fallback / Fast Loading
+  const curatedGifs = {
+    'trending': [
+      'https://media.tenor.com/2lFh_d9rV9QAAAAC/cat-vibing.gif',
+      'https://media.tenor.com/8N4J96n3RuoAAAAC/pepe-dance.gif',
+      'https://media.tenor.com/qLhP75vU3vIAAAAC/popcat.gif',
+      'https://media.tenor.com/PZtN_y3U3UAAAAAC/leonardo-dicaprio-cheers.gif',
+      'https://media.tenor.com/O61g7U029VAAAAAC/mind-blown.gif',
+      'https://media.tenor.com/kHdt_22T_AAAAAAC/dancing-happy.gif'
+    ],
+    'rust crab': [
+      'https://media.tenor.com/mO24nS23G0AAAAAC/crab-rave-dancing.gif',
+      'https://media.tenor.com/w162i0sWlV4AAAAC/ferris-rust.gif',
+      'https://media.tenor.com/M6L54yZ0u7AAAAAC/crab-rave.gif',
+      'https://media.tenor.com/yS42JvE_s7EAAAAC/sponge-bob-mr-krabs.gif'
+    ],
+    'laugh': [
+      'https://media.tenor.com/bC8w56S_W_0AAAAC/laughing-meme.gif',
+      'https://media.tenor.com/4i9JgW_Z40sAAAAC/lol-laughing.gif',
+      'https://media.tenor.com/0F4vN3ZJmXoAAAAC/crying-laughing.gif',
+      'https://media.tenor.com/mU0H9l1_J-QAAAAC/hahaha.gif'
+    ],
+    'cat': [
+      'https://media.tenor.com/qLhP75vU3vIAAAAC/popcat.gif',
+      'https://media.tenor.com/2lFh_d9rV9QAAAAC/cat-vibing.gif',
+      'https://media.tenor.com/fT_SjKq8bPAAAAAC/cat-jam.gif',
+      'https://media.tenor.com/y_WvjGZ2L2kAAAAC/shocked-cat.gif'
+    ],
+    'dance': [
+      'https://media.tenor.com/8N4J96n3RuoAAAAC/pepe-dance.gif',
+      'https://media.tenor.com/mO24nS23G0AAAAAC/crab-rave-dancing.gif',
+      'https://media.tenor.com/kHdt_22T_AAAAAAC/dancing-happy.gif',
+      'https://media.tenor.com/OqD0nS_n9XwAAAAC/snoopy-dance.gif'
+    ],
+    'wow': [
+      'https://media.tenor.com/O61g7U029VAAAAAC/mind-blown.gif',
+      'https://media.tenor.com/f_G2f4N1j7QAAAAC/omg-wow.gif',
+      'https://media.tenor.com/f9h_s1_jK9sAAAAC/shocked.gif',
+      'https://media.tenor.com/Yv7Xk7_r4-oAAAAC/keanu-reeves-whoa.gif'
+    ]
+  };
 
   // Avatar colors
   const avatarColors = [
@@ -72,6 +142,45 @@
     return div.innerHTML;
   }
 
+  // Detect image and GIF URLs
+  function extractMediaUrl(text) {
+    const mediaPattern = /(https?:\/\/[^\s]+(?:\.png|\.jpg|\.jpeg|\.gif|\.webp)(?:\?[^\s]*)?|https?:\/\/(?:media\.tenor\.com|media[0-9]?\.giphy\.com|i\.imgur\.com|i\.redd\.it)[^\s]+)/i;
+    const match = text.match(mediaPattern);
+    if (match) {
+      const url = match[0];
+      const textWithoutUrl = text.replace(url, '').trim();
+      return { url, text: textWithoutUrl };
+    }
+    return null;
+  }
+
+  // Room switching logic
+  function switchRoom(roomName) {
+    if (!roomName) roomName = 'general';
+    currentRoom = roomName;
+    window.location.hash = roomName;
+
+    // Update UI highlights
+    document.querySelectorAll('.channel-item').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.room === roomName);
+    });
+
+    currentChannelTitle.textContent = roomName;
+    currentChannelTopic.textContent = roomTopics[roomName] || `Phòng #${roomName}`;
+    welcomeTitle.textContent = `Chào mừng bạn đến với #${roomName}!`;
+    welcomeDesc.textContent = `Đây là điểm bắt đầu của phòng trò chuyện #${roomName}.`;
+    messageInput.placeholder = `Nhắn tin trong #${roomName}... (hỗ trợ dán link ảnh/GIF)`;
+
+    // Close mobile sidebar
+    appSidebar.classList.remove('open');
+
+    // Notify WebSocket server
+    sendWsMessage({
+      type: 'join_room',
+      room: roomName
+    });
+  }
+
   // WebSocket Connection
   function connectWebSocket() {
     clearTimeout(reconnectTimeout);
@@ -88,11 +197,17 @@
       statusText.textContent = 'Đã kết nối';
       reconnectAttempts = 0;
 
-      // Send saved nickname if any
       if (currentNickname) {
         sendWsMessage({
           type: 'set_nickname',
           nickname: currentNickname
+        });
+      }
+
+      if (currentRoom && currentRoom !== 'general') {
+        sendWsMessage({
+          type: 'join_room',
+          room: currentRoom
         });
       }
     };
@@ -102,7 +217,7 @@
         const data = JSON.parse(event.data);
         handleServerMessage(data);
       } catch (err) {
-        console.error('Lỗi phân tích tin nhắn từ server:', err);
+        console.error('Lỗi parse tin nhắn:', err);
       }
     };
 
@@ -132,7 +247,7 @@
     return false;
   }
 
-  // Handle incoming messages
+  // Handle server incoming messages
   function handleServerMessage(msg) {
     switch (msg.type) {
       case 'nickname_assigned':
@@ -141,6 +256,12 @@
 
       case 'user_count':
         userCountEl.textContent = msg.count;
+        break;
+
+      case 'room_joined':
+        if (msg.room !== currentRoom) {
+          switchRoom(msg.room);
+        }
         break;
 
       case 'history':
@@ -156,12 +277,11 @@
         break;
 
       default:
-        console.warn('Unknown message type:', msg);
+        console.warn('Loại tin không xác định:', msg);
     }
   }
 
   function renderHistory(messages) {
-    // Preserve welcome banner, remove any existing chat items
     const welcome = chatContainer.querySelector('.welcome-banner');
     chatContainer.innerHTML = '';
     if (welcome) {
@@ -189,6 +309,22 @@
     const color = getAvatarColor(msg.nickname);
     const initials = getInitials(msg.nickname);
 
+    const mediaInfo = extractMediaUrl(msg.content);
+    let bubbleContentHtml = '';
+
+    if (mediaInfo) {
+      if (mediaInfo.text) {
+        bubbleContentHtml += `<div class="bubble-text">${escapeHtml(mediaInfo.text)}</div>`;
+      }
+      bubbleContentHtml += `
+        <div class="chat-media-container" data-img-url="${escapeHtml(mediaInfo.url)}">
+          <img src="${escapeHtml(mediaInfo.url)}" class="chat-media-img" loading="lazy" alt="Media image" onerror="this.parentElement.style.display='none'"/>
+        </div>
+      `;
+    } else {
+      bubbleContentHtml = escapeHtml(msg.content);
+    }
+
     wrapper.innerHTML = `
       <div class="avatar" style="background: ${color}">${initials}</div>
       <div class="message-content-group">
@@ -196,9 +332,17 @@
           <span class="sender-name">${escapeHtml(msg.nickname)}</span>
           <span class="timestamp">${escapeHtml(msg.timestamp || '')}</span>
         </div>
-        <div class="message-bubble">${escapeHtml(msg.content)}</div>
+        <div class="message-bubble">${bubbleContentHtml}</div>
       </div>
     `;
+
+    // Click to open lightbox
+    const mediaContainer = wrapper.querySelector('.chat-media-container');
+    if (mediaContainer) {
+      mediaContainer.addEventListener('click', () => {
+        openLightbox(mediaContainer.dataset.imgUrl);
+      });
+    }
 
     const wasNearBottom = isScrollNearBottom();
     chatContainer.appendChild(wrapper);
@@ -252,7 +396,6 @@
     const content = messageInput.value.trim();
     if (!content) return;
 
-    // Chống double click liên tục ở client
     const sendBtn = document.getElementById('sendBtn');
     if (sendBtn) {
       sendBtn.disabled = true;
@@ -267,33 +410,151 @@
     if (sent) {
       messageInput.value = '';
       emojiPicker.classList.add('hidden');
+      gifPicker.classList.add('hidden');
       messageInput.focus();
     } else {
-      alert('Chưa kết nối được tới server chat. Vui lòng chờ giây lát...');
+      alert('Chưa kết nối được tới server chat. Vui lòng thử lại...');
     }
   });
 
-  // Emoji Toggle & Click
+  // Channels click listener
+  channelsList.addEventListener('click', (e) => {
+    const btn = e.target.closest('.channel-item');
+    if (btn && btn.dataset.room) {
+      switchRoom(btn.dataset.room);
+    }
+  });
+
+  // Mobile sidebar toggle
+  sidebarToggleBtn.addEventListener('click', () => {
+    appSidebar.classList.add('open');
+  });
+
+  sidebarCloseBtn.addEventListener('click', () => {
+    appSidebar.classList.remove('open');
+  });
+
+  // Emoji Toggle
   emojiToggleBtn.addEventListener('click', (e) => {
     e.stopPropagation();
+    gifPicker.classList.add('hidden');
     emojiPicker.classList.toggle('hidden');
   });
 
   emojiPicker.addEventListener('click', (e) => {
     if (e.target.classList.contains('emoji-item')) {
-      const emoji = e.target.textContent;
-      messageInput.value += emoji;
+      messageInput.value += e.target.textContent;
       messageInput.focus();
     }
   });
 
+  // GIF Picker Handling
+  gifToggleBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    emojiPicker.classList.add('hidden');
+    gifPicker.classList.toggle('hidden');
+    if (!gifPicker.classList.contains('hidden')) {
+      loadGifsForTag('trending');
+    }
+  });
+
+  gifPickerClose.addEventListener('click', () => {
+    gifPicker.classList.add('hidden');
+  });
+
+  gifQuickTags.addEventListener('click', (e) => {
+    const tag = e.target.closest('.gif-tag');
+    if (tag && tag.dataset.tag) {
+      loadGifsForTag(tag.dataset.tag);
+    }
+  });
+
+  function renderGifList(urls) {
+    gifResults.innerHTML = '';
+    urls.forEach(url => {
+      const img = document.createElement('img');
+      img.src = url;
+      img.className = 'gif-item';
+      img.loading = 'lazy';
+      img.addEventListener('click', () => {
+        // Send GIF URL directly
+        sendWsMessage({
+          type: 'chat',
+          content: url
+        });
+        gifPicker.classList.add('hidden');
+      });
+      gifResults.appendChild(img);
+    });
+  }
+
+  async function loadGifsForTag(tag) {
+    // If we have curated, render immediately
+    if (curatedGifs[tag]) {
+      renderGifList(curatedGifs[tag]);
+      return;
+    }
+
+    gifResults.innerHTML = '<div style="color:var(--text-muted);font-size:0.8rem;padding:1rem;">Đang tìm kiếm...</div>';
+
+    try {
+      // Tenor API search
+      const res = await fetch(`https://tenor.googleapis.com/v2/search?q=${encodeURIComponent(tag)}&key=LIVDSRZULELA&limit=12&media_filter=gif`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.results && data.results.length > 0) {
+          const urls = data.results.map(item => item.media_formats.gif.url);
+          renderGifList(urls);
+          return;
+        }
+      }
+    } catch (e) {
+      console.warn('Tenor API rate limit or error, using fallback:', e);
+    }
+
+    // Fallback to trending
+    renderGifList(curatedGifs['trending']);
+  }
+
+  gifSearchInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const query = gifSearchInput.value.trim();
+      if (query) {
+        loadGifsForTag(query);
+      }
+    }
+  });
+
+  // Close popovers on outer click
   document.addEventListener('click', (e) => {
     if (!emojiPicker.contains(e.target) && e.target !== emojiToggleBtn) {
       emojiPicker.classList.add('hidden');
     }
+    if (!gifPicker.contains(e.target) && e.target !== gifToggleBtn) {
+      gifPicker.classList.add('hidden');
+    }
   });
 
-  // Nickname Modal Handling
+  // Lightbox Modal
+  function openLightbox(url) {
+    lightboxImage.src = url;
+    lightboxModal.classList.remove('hidden');
+  }
+
+  function closeLightbox() {
+    lightboxModal.classList.add('hidden');
+    lightboxImage.src = '';
+  }
+
+  lightboxCloseBtn.addEventListener('click', closeLightbox);
+  lightboxModal.addEventListener('click', (e) => {
+    if (e.target === lightboxModal) {
+      closeLightbox();
+    }
+  });
+
+  // Nickname Modal
   function openNicknameModal() {
     nicknameInput.value = currentNickname || '';
     nicknameModal.classList.remove('hidden');
@@ -336,9 +597,17 @@
     }
   });
 
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      closeLightbox();
+      closeNicknameModal();
+    }
+  });
+
   // Start app
   if (currentNickname) {
     updateNicknameUI(currentNickname);
   }
+  switchRoom(currentRoom);
   connectWebSocket();
 })();
