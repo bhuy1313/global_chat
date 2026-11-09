@@ -1,37 +1,29 @@
-# Multi-stage Dockerfile for Rust Global Chat
-# Stage 1: Build
-FROM rust:1.85-slim-bookworm AS builder
+# Stage 1: Build binary using the latest official Rust image
+FROM rust:bookworm AS builder
 
 WORKDIR /usr/src/app
 
-# Copy dependency definitions
+# Copy dependency manifests and source code
 COPY Cargo.toml Cargo.lock ./
-
-# Build dummy target to cache dependencies
-RUN mkdir src && echo "fn main() {}" > src/main.rs && \
-    cargo build --release && \
-    rm -rf src
-
-# Copy actual source code
 COPY src ./src
 
-# Build release binary
-RUN touch src/main.rs && cargo build --release
+# Build the release binary
+RUN cargo build --release
 
-# Stage 2: Runtime
+# Stage 2: Runtime image (ultra-lightweight Debian slim)
 FROM debian:bookworm-slim AS runner
 
 WORKDIR /app
 
-# Install ca-certificates (required for TLS to Neon/Supabase cloud databases)
+# Install ca-certificates for secure TLS connections to Cloud DB
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy binary from builder
+# Copy the compiled binary from builder stage
 COPY --from=builder /usr/src/app/target/release/global_chat /app/global_chat
 
-# Copy static frontend directory
+# Copy static assets (HTML/CSS/JS)
 COPY static ./static
 
 ENV PORT=3000
